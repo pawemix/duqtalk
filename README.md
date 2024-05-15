@@ -33,5 +33,15 @@ duqtalk --json
 
 NOTE: Current implementation *cleans up the chat after each response* on the
 browser side, so in practice there's no chat history context to drive a
-conversation - each query & response pair is completely standalone. This may
+conversation from -- each query/response pair is completely standalone. This may
 change in future implementations.
+
+### Example
+
+```
+$ duqtalk
+> Write an `ffmpeg` invocation to record current screen (in X11 desktop) (1920x1080 resolution).
+ffmpeg -f x11grab -s 1920x1080 -i :0.0 -c:v libx264 output.mp4
+>
+$
+```
