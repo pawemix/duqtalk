@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+
+from json import dumps as json_dumps
+from json import loads as json_loads
+from shutil import which
+from sys import argv, stdin
+from time import sleep
+from typing import Callable
+
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.firefox.webdriver import WebDriver
+from selenium.webdriver.remote.webelement import WebElement
+
+
+def read_line(prompt=""):
+    try:
+        return input(prompt)
+    except EOFError:
+        return None
+
+
+def find_elems_retry(
+    tag_name: str,
+    filtered: Callable[[list[WebElement]], list[WebElement]] = lambda xs: xs,
+    retries: int = 100,
+    sleep_secs: float = 0.01,
+) -> list[WebElement] | None:
+    """
+    Blockingly poll for elements with `tag_name`, until list of found elements
+    filtered by `filtered` function is nonempty. After each retry, sleep for
+    `sleep_secs`. After `retries` retries, give up and return `None`.
+    """
+    while retries > 0:
+        elems = driver.find_elements(By.TAG_NAME, tag_name)
+        sel_elems = filtered(elems)
+        if len(sel_elems) > 0:
+            return sel_elems
+        else:
+            sleep(sleep_secs)
+            retries = retries - 1
+
+
+def click_at(btn_text: str):
+    sel_btns = find_elems_retry(
+        "button",
+        lambda elems: [
+            elem
+            for elem in elems
+            if elem.text == btn_text or elem.accessible_name == btn_text
+        ],
+    )
+    assert sel_btns
+    assert len(sel_btns or []) > 0
+    sel_btns[0].click()
+
+
+options = Options()
+options.add_argument("-headless")
+service = Service(which("geckodriver") or "geckodriver")
+driver = WebDriver(options, service)
+driver.set_window_size(1920, 1080)
+driver.get("https://duckduckgo.com/?q=DuckDuckGo&ia=chat")
+
+click_at("Get Started")
+click_at("Next")
+click_at("I Agree")
+
+
+def question_answer(prompt: str):
+    prompt = (
+        prompt
+        + "\nPlease respond only within one Markdown-formatted code block, and nothing else."
+    )
+    prompt_textareas = find_elems_retry("textarea", lambda xs: xs)
+    assert prompt_textareas
+    assert len(prompt_textareas) > 0
+    assert prompt_textareas[-1]
+    prompt_textarea = prompt_textareas[-1]
+    for line in prompt.splitlines():
+        if len(line) == 0:
+            continue
+        prompt_textarea.send_keys(line)
+        ActionChains(driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(
+            Keys.SHIFT
+        ).perform()
+    prompt_textarea.submit()
+    # wait until the Send button gets available, and then additional 100ms; at
+    # that point, the answer should be fully generated:
+    find_elems_retry(
+        "button",
+        lambda elems: [e for e in elems if e.accessible_name == "Send"],
+    )
+    sleep(0.1)
+    # assume there is one `pre` tag with the whole answer, and read it:
+    code_block_tags = find_elems_retry("pre")
+    assert code_block_tags
+    assert len(code_block_tags) > 0
+    assert code_block_tags[-1]
+    code_block_tag = code_block_tags[-1]
+    text_lines = code_block_tag.text.splitlines()
+    # cut out the "Code" and "Copy Code" preambles from "pre" tag's contents:
+    text_lines.pop(0)
+    text_lines.pop(0)
+
+    # The last button is Send, and the one before it is Clear Conversation.
+    # Click the "Clear Conversation" button to clean up the chat without killing
+    # the whole session (which takes a few moments to set up):
+    def only_elem_before_last(elems):
+        if len(elems) > 1:
+            return [elems[-2]]
+        else:
+            return []
+
+    clear_btns = find_elems_retry("button", only_elem_before_last)
+    assert clear_btns
+    clear_btn = clear_btns[0]
+    assert clear_btn
+    clear_btn.click()
+    return "\n".join(text_lines)
+
+
+user_prompt = "> " if stdin.isatty() else ""
+is_json_mode = "--json" in argv[1:]
+
+while True:
+    prompt_line = read_line(user_prompt)
+    if prompt_line is None:
+        if stdin.isatty():
+            print()  # an extra newline so that user's shell prompt is next line
+        break
+    if is_json_mode:
+        prompt_line = json_loads(prompt_line)
+    response = question_answer(prompt_line)
+    if is_json_mode:
+        response = json_dumps(response)
+    print(response)
+
+
+driver.quit()
