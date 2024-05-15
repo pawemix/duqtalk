@@ -4,6 +4,10 @@
 
 A CLI application to chat with DuckDuckGo AI (using Python and Selenium).
 
+**Please do not overuse this as to not overload DuckDuckGo AI chat service.
+They're already generous enough to serve us decent & privacy-respecting GenAI
+for free.** :wink:
+
 ## Installation
 
 Set up dependencies:
